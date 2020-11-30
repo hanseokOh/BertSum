@@ -17,27 +17,18 @@ from others.logging import logger
 from others.utils import clean
 from prepro.utils import _get_word_ngrams
 
+## for korean model
+import gluonnlp as nlp
+import sys 
+# sys.path.append('~/Documents/hanseok/dacon_summ/KoBERT/kobert')
+from kobert.utils import get_tokenizer
+from gluonnlp.data import SentencepieceTokenizer
+from kobert.pytorch_kobert import get_pytorch_kobert_model
 
-def load_json(p, lower):
-    source = []
-    tgt = []
-    flag = False
-    for sent in json.load(open(p))['sentences']:
-        tokens = [t['word'] for t in sent['tokens']]
-        if (lower):
-            tokens = [t.lower() for t in tokens]
-        if (tokens[0] == '@highlight'):
-            flag = True
-            continue
-        if (flag):
-            tgt.append(tokens)
-            flag = False
-        else:
-            source.append(tokens)
+bertmodel, vocab = get_pytorch_kobert_model()
+tokenizer = get_tokenizer()
+tok = nlp.data.BERTSPTokenizer(tokenizer, vocab, lower=False)
 
-    source = [clean(' '.join(sent)).split() for sent in source]
-    tgt = [clean(' '.join(sent)).split() for sent in tgt]
-    return source, tgt
 
 
 def cal_rouge(evaluated_ngrams, reference_ngrams):
@@ -142,41 +133,41 @@ def hashhex(s):
 
 
 class BertData():
-    def __init__(self, args):
-        self.args = args
-        self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased', do_lower_case=True)
+    def __init__(self,args,bert_tokenizer):
+        self.args=args
+        self.tokenizer = bert_tokenizer
         self.sep_vid = self.tokenizer.vocab['[SEP]']
         self.cls_vid = self.tokenizer.vocab['[CLS]']
         self.pad_vid = self.tokenizer.vocab['[PAD]']
 
-    def preprocess(self, src, tgt, oracle_ids):
-
+    def preprocess(self,src,tgt,oracle_ids):
         if (len(src) == 0):
             return None
 
-        original_src_txt = [' '.join(s) for s in src]
+        original_src_txt = [''.join(s) for s in src]
 
         labels = [0] * len(src)
         for l in oracle_ids:
             labels[l] = 1
-
         idxs = [i for i, s in enumerate(src) if (len(s) > self.args.min_src_ntokens)]
 
         src = [src[i][:self.args.max_src_ntokens] for i in idxs]
         labels = [labels[i] for i in idxs]
+        
         src = src[:self.args.max_nsents]
         labels = labels[:self.args.max_nsents]
-
+        
         if (len(src) < self.args.min_nsents):
             return None
         if (len(labels) == 0):
             return None
 
-        src_txt = [' '.join(sent) for sent in src]
+        src_txt = [''.join(sent) for sent in src]
         # text = [' '.join(ex['src_txt'][i].split()[:self.args.max_src_ntokens]) for i in idxs]
         # text = [_clean(t) for t in text]
         text = ' [SEP] [CLS] '.join(src_txt)
-        src_subtokens = self.tokenizer.tokenize(text)
+        self.tokenizer('') 
+        src_subtokens = self.tokenizer.sentencepiece(text)
         src_subtokens = src_subtokens[:510]
         src_subtokens = ['[CLS]'] + src_subtokens + ['[SEP]']
 
@@ -191,8 +182,8 @@ class BertData():
                 segments_ids += s * [1]
         cls_ids = [i for i, t in enumerate(src_subtoken_idxs) if t == self.cls_vid]
         labels = labels[:len(cls_ids)]
-
-        tgt_txt = '<q>'.join([' '.join(tt) for tt in tgt])
+        
+        tgt_txt = '<q>'.join([''.join(tgt)])
         src_txt = [original_src_txt[i] for i in idxs]
         return src_subtoken_idxs, labels, segments_ids, cls_ids, src_txt, tgt_txt
 
@@ -204,9 +195,9 @@ def format_to_bert(args):
         datasets = ['train', 'valid', 'test']
     for corpus_type in datasets:
         a_lst = []
-        for json_f in glob.glob(pjoin(args.raw_path, '*' + corpus_type + '.*.json')):
-            real_name = json_f.split('/')[-1]
-            a_lst.append((json_f, args, pjoin(args.save_path, real_name.replace('json', 'bert.pt'))))
+        json_f=args.raw_path+'/' + corpus_type + '.json'
+        real_name = json_f.split('/')[-1]
+        a_lst.append((json_f, args, pjoin(args.save_path, real_name.replace('json', 'bert.pt'))))
         print(a_lst)
         pool = Pool(args.n_cpus)
         for d in pool.imap(_format_to_bert, a_lst):
@@ -214,7 +205,6 @@ def format_to_bert(args):
 
         pool.close()
         pool.join()
-
 
 def tokenize(args):
     stories_dir = os.path.abspath(args.raw_path)
@@ -251,13 +241,13 @@ def _format_to_bert(params):
         logger.info('Ignore %s' % save_file)
         return
 
-    bert = BertData(args)
+    bert = BertData(args,tok)
 
     logger.info('Processing %s' % json_file)
     jobs = json.load(open(json_file))
     datasets = []
     for d in jobs:
-        source, tgt = d['src'], d['tgt']
+        source, tgt,oracle_ids = d['src'], d['tgt'],d['oracle_ids']
         if (args.oracle_mode == 'greedy'):
             oracle_ids = greedy_selection(source, tgt, 3)
         elif (args.oracle_mode == 'combination'):
@@ -273,54 +263,3 @@ def _format_to_bert(params):
     torch.save(datasets, save_file)
     datasets = []
     gc.collect()
-
-
-def format_to_lines(args):
-    corpus_mapping = {}
-    for corpus_type in ['valid', 'test', 'train']:
-        temp = []
-        for line in open(pjoin(args.map_path, 'mapping_' + corpus_type + '.txt')):
-            temp.append(hashhex(line.strip()))
-        corpus_mapping[corpus_type] = {key.strip(): 1 for key in temp}
-    train_files, valid_files, test_files = [], [], []
-    for f in glob.glob(pjoin(args.raw_path, '*.json')):
-        real_name = f.split('/')[-1].split('.')[0]
-        if (real_name in corpus_mapping['valid']):
-            valid_files.append(f)
-        elif (real_name in corpus_mapping['test']):
-            test_files.append(f)
-        elif (real_name in corpus_mapping['train']):
-            train_files.append(f)
-
-    corpora = {'train': train_files, 'valid': valid_files, 'test': test_files}
-    for corpus_type in ['train', 'valid', 'test']:
-        a_lst = [(f, args) for f in corpora[corpus_type]]
-        pool = Pool(args.n_cpus)
-        dataset = []
-        p_ct = 0
-        for d in pool.imap_unordered(_format_to_lines, a_lst):
-            dataset.append(d)
-            if (len(dataset) > args.shard_size):
-                pt_file = "{:s}.{:s}.{:d}.json".format(args.save_path, corpus_type, p_ct)
-                with open(pt_file, 'w') as save:
-                    # save.write('\n'.join(dataset))
-                    save.write(json.dumps(dataset))
-                    p_ct += 1
-                    dataset = []
-
-        pool.close()
-        pool.join()
-        if (len(dataset) > 0):
-            pt_file = "{:s}.{:s}.{:d}.json".format(args.save_path, corpus_type, p_ct)
-            with open(pt_file, 'w') as save:
-                # save.write('\n'.join(dataset))
-                save.write(json.dumps(dataset))
-                p_ct += 1
-                dataset = []
-
-
-def _format_to_lines(params):
-    f, args = params
-    print(f)
-    source, tgt = load_json(f, args.lower)
-    return {'src': source, 'tgt': tgt}

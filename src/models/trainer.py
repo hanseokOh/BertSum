@@ -231,8 +231,8 @@ class Trainer(object):
             self.model.eval()
         stats = Statistics()
 
-        can_path = '%s_step%d.candidate'%(self.args.result_path,step)
-        gold_path = '%s_step%d.gold' % (self.args.result_path, step)
+        can_path = '%s/step%d.candidate'%(self.args.result_path,step)
+        gold_path = '%s/step%d.gold' % (self.args.result_path, step)
         with open(can_path, 'w') as save_pred:
             with open(gold_path, 'w') as save_gold:
                 with torch.no_grad():
@@ -290,9 +290,9 @@ class Trainer(object):
                             gold.append(batch.tgt_str[i])
 
                         for i in range(len(gold)):
-                            save_gold.write(gold[i].strip()+'\n')
+                            save_gold.write(gold[i].replace('\n','')+'\n')
                         for i in range(len(pred)):
-                            save_pred.write(pred[i].strip()+'\n')
+                            save_pred.write(pred[i].replace('\n','')+'\n')
         if(step!=-1 and self.args.report_rouge):
             rouges = test_rouge(self.args.temp_dir, can_path, gold_path)
             logger.info('Rouges at step %d \n%s' % (step, rouge_results_to_str(rouges)))
