@@ -53,17 +53,18 @@ def build_optim(args, model, checkpoint):
 class Bert(nn.Module):
     def __init__(self, temp_dir, load_pretrained_bert, bert_config):
         super(Bert, self).__init__()
+        bertmodel, vocab = get_pytorch_kobert_model()
         if(load_pretrained_bert):
             # self.model = BertModel.from_pretrained('bert-base-uncased', cache_dir=temp_dir)
-            bertmodel, vocab = get_pytorch_kobert_model()
             self.model = bertmodel
 
         else:
-            self.model = BertModel(bert_config)
+            self.model = bertmodel
 
     def forward(self, x, segs, mask):
-        encoded_layers, _ = self.model(x, segs, attention_mask =mask)
-        top_vec = encoded_layers #[-1]
+        encoded_layers = self.model(x, segs, mask)
+        top_vec = encoded_layers['last_hidden_state'] #[-1]
+        
         return top_vec
 
 

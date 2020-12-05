@@ -166,7 +166,7 @@ class BertData():
         # text = [' '.join(ex['src_txt'][i].split()[:self.args.max_src_ntokens]) for i in idxs]
         # text = [_clean(t) for t in text]
         text = ' [SEP] [CLS] '.join(src_txt)
-        self.tokenizer('') 
+        self.tokenizer('테스트') 
         src_subtokens = self.tokenizer.sentencepiece(text)
         src_subtokens = src_subtokens[:510]
         src_subtokens = ['[CLS]'] + src_subtokens + ['[SEP]']

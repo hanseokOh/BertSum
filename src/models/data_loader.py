@@ -28,7 +28,7 @@ class Batch(object):
 
             labels = torch.tensor(self._pad(pre_labels, 0))
             segs = torch.tensor(self._pad(pre_segs, 0))
-            mask = torch.tensor(~(src == 0),dtype=torch.log) 
+            mask = torch.tensor(~(src == 0),dtype=torch.long) 
 
             clss = torch.tensor(self._pad(pre_clss, -1))
             mask_cls = ~(clss == -1)
